@@ -19,7 +19,7 @@
 
 (defn make-ShortMessage
   ([midi-msg]
-    (apply make-ShortMessage ((juxt :cmd :note :vel) midi-msg)))
+    (apply make-ShortMessage ((juxt :command :note :velocity) midi-msg)))
   ([cmd byte1 byte2]
      {:pre [(contains? cmd->java-cmd cmd)]}
      (doto (ShortMessage.)
@@ -83,22 +83,22 @@
   (bit-or colour 4r030))
 
 (def metakeys->midi
-  {:up      {:cmd :control-change :note 104}
-   :down    {:cmd :control-change :note 105}
-   :left    {:cmd :control-change :note 106}
-   :right   {:cmd :control-change :note 107}
-   :session {:cmd :control-change :note 108}
-   :user1   {:cmd :control-change :note 109}
-   :user2   {:cmd :control-change :note 110}
-   :mixer   {:cmd :control-change :note 111}
-   :vol     {:cmd :note-on        :note   8}
-   :pan     {:cmd :note-on        :note  24}
-   :snda    {:cmd :note-on        :note  40}
-   :sndb    {:cmd :note-on        :note  56}
-   :stop    {:cmd :note-on        :note  72}
-   :trkon   {:cmd :note-on        :note  88}
-   :solo    {:cmd :note-on        :note 104}
-   :arm     {:cmd :note-on        :note 120}})
+  {:up      {:command :control-change :note 104}
+   :down    {:command :control-change :note 105}
+   :left    {:command :control-change :note 106}
+   :right   {:command :control-change :note 107}
+   :session {:command :control-change :note 108}
+   :user1   {:command :control-change :note 109}
+   :user2   {:command :control-change :note 110}
+   :mixer   {:command :control-change :note 111}
+   :vol     {:command :note-on        :note   8}
+   :pan     {:command :note-on        :note  24}
+   :snda    {:command :note-on        :note  40}
+   :sndb    {:command :note-on        :note  56}
+   :stop    {:command :note-on        :note  72}
+   :trkon   {:command :note-on        :note  88}
+   :solo    {:command :note-on        :note 104}
+   :arm     {:command :note-on        :note 120}})
 
 (def midi->metakeys
   (map-invert metakeys->midi))
@@ -109,21 +109,26 @@
 (defn colour-msg [key colour palette]
   (make-ShortMessage
     (into (metakeys->midi key)
-          {:vel (colour-single colour palette)})))
+          {:velocity (colour-single colour palette)})))
 
 (defn get-metakey
   "returns the metakey, or nil if it's not a metakey"
   [event]
-  (midi->metakeys {:cmd  (midi-shortmessage-command (:cmd event))
+  (midi->metakeys {:command  (:command event)
                    :note (:note event)}))
 
 (defn key-coords [midi-event]
+  (println midi-event)
+  (println    (midi-note->coords (:note midi-event)))
   (and
-   (= ShortMessage/NOTE_ON (:cmd midi-event))
+   (or
+    (= :note-on (:command midi-event))
+    (= :note-off (:command midi-event))
+    )
    (midi-note->coords (:note midi-event))))
 
 (defn event-map [midi-event]
-  (let [key-event (if (zero? (:vel midi-event)) :release :press)
+  (let [key-event (if (zero? (:velocity midi-event)) :release :press)
         key       (or (get-metakey midi-event)
                       (key-coords midi-event))]
     (when key
@@ -131,7 +136,7 @@
        :key key})))
 
 (defn midi-handler [handler-atom]
-  (fn [midi-event ts]
+  (fn [midi-event]
     (try
       (@handler-atom (event-map midi-event))
       (catch Exception e ;Don't let the midi thread die, it's messy
@@ -185,7 +190,7 @@
         (let [colour-1 (colours (palette (get leds coord-1 0)))
               colour-2 (colours (palette (get leds coord-2 0)))]
           (midi-send launchpad-out (make-ShortMessage 2 :note-on colour-1 colour-2)))))
-    (midi-send launchpad-out display-buffer-1))) 
+    (midi-send launchpad-out display-buffer-1)))
 
 (defmethod print-method Launchpad [lp w]
   (.write w (format "#<Launchpad palette%s>" (:palette lp))))
@@ -199,9 +204,8 @@
   ([palette]
      (if-let [launchpad-in (midi-in "Launchpad")]
        (if-let [launchpad-out (midi-out "Launchpad")]
-         (let [lp (Launchpad. launchpad-in launchpad-out palette (atom (fn [event] nil)))]
+         (let [lp (Launchpad. launchpad-in launchpad-out palette (atom (fn [event] (println event))))]
            (midi-handle-events launchpad-in (midi-handler (:handler-atom lp)))
            lp)
          (throw (Exception. "Found launchpad for input but couldn't find it for output")))
        (throw (Exception. "Couldn't find launchpad")))))
-
